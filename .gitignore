@@ -1,0 +1,4 @@
+__pycache__/
+*.py[cod]
+Arduino_DisplayVisualization/
+Arduino_Encoder_Sole/
