@@ -9,10 +9,15 @@ from collections import defaultdict
 # File paths for Left Leg Trials
 # ===============================
 left_paths = {
-    "ankle": "/home/pylin/Documents/Courses/bio_seminar/recorded_data/left ankel angle 0-45 v2.trc",
-    "hip":   "/home/pylin/Documents/Courses/bio_seminar/recorded_data/left hip angle 0-90 v2.trc",
-    "knee":  "/home/pylin/Documents/Courses/bio_seminar/recorded_data/left knee angle 0-120 v2.trc",
-    "grf":   "/home/pylin/Documents/Courses/bio_seminar/recorded_data/left GRF 4 sensor v2.trc"
+    #"ankle": "recorded_data/left ankel angle 0-45 v2.trc",
+    "ankle": "recorded_data/left movement v1.trc",
+    # "hip":   "recorded_data/left hip angle 0-90 v2.trc",
+    # "knee":  "recorded_data/left knee angle 0-120 v2.trc",
+    # "grf":   "recorded_data/left GRF 4 sensor v2.trc"
+}
+
+right_paths = {
+    "ankle": "recorded_data/right still test v1.trc",
 }
 
 # ===============================
@@ -41,8 +46,8 @@ grf_list   = grf_data["0025"]["Channel 1"]  # You may change channel as needed
 # ===============================
 knee_df  = pd.DataFrame(knee_list).rename(columns={"Angle": "knee"}).sort_values("TimeOffset")
 hip_df   = pd.DataFrame(hip_list).rename(columns={"Angle": "hip"}).sort_values("TimeOffset")
-ankle_df = pd.DataFrame(knee_list).rename(columns={"Angle": "ankle"}).sort_values("TimeOffset")
-grf_df   = pd.DataFrame(knee_list).rename(columns={"Angle": "grf"}).sort_values("TimeOffset")   # TODO: change to real GRF
+ankle_df = pd.DataFrame(ankle_list).rename(columns={"Angle": "ankle"}).sort_values("TimeOffset")
+grf_df   = pd.DataFrame(grf_list).rename(columns={"Value": "grf"}).sort_values("TimeOffset")   # TODO: change to real GRF
 
 # ===============================
 # Align TimeSeries via Merge-As-Of
@@ -59,9 +64,15 @@ df["gait_phase"] = df.apply(detect_gait_phase_row, axis=1)
 # ===============================
 # Visualization (Optional)
 # ===============================
-plot_encoder(encoder_data, "Left_Knee_Angle")
-# plot_imu(imu_data, "Left_Femur_RPY_(IMU)")
-# plot_grf(grf_data, "Left_Ankle_GRF_Channel_1")
+# plot_encoder(encoder_data, "Left_Knee_Angle")
+# plot_encoder(encoder_data, "Left_Hip_Angle")
+# plot_encoder(encoder_data, "Left_Ankle_Angle")
+
+plot_imu(imu_data, "Left_Femur_RPY_(IMU)")
+plot_grf(grf_data, "Left_Ankle_GRF_Channel_1")
+plot_grf(grf_data, "Left_Ankle_GRF_Channel_2")
+plot_grf(grf_data, "Left_Ankle_GRF_Channel_3")
+plot_grf(grf_data, "Left_Ankle_GRF_Channel_4")
 
 # ===============================
 # Debug or Export
