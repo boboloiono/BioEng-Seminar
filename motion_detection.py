@@ -1,6 +1,6 @@
 from aux_functions import (
-    detect_gait_phase_row, parse_can_log, 
-    plot_encoder, plot_imu, plot_grf
+    detect_gait_phase_row, parse_can_log, get_grf_sum_df,
+    plot_encoder, plot_imu, plot_grf, plot_grf_angle
 )
 import pandas as pd
 from collections import defaultdict
@@ -46,8 +46,10 @@ for path in left_paths.values():
 knee_list  = encoder_data["0020"]
 hip_list   = encoder_data["0022"]
 ankle_list = encoder_data["0024"]
-grf_list   = grf_data["0025"]["Channel 1"]  # You may change channel as needed
 
+grf_df = get_grf_sum_df(grf_data)
+# Convert to list of dicts for grf_list
+grf_list = grf_df.to_dict(orient="records")
 
 # ===============================
 # Build DataFrames & Sort by Time
@@ -55,7 +57,6 @@ grf_list   = grf_data["0025"]["Channel 1"]  # You may change channel as needed
 knee_df  = pd.DataFrame(knee_list).rename(columns={"Angle": "knee"}).sort_values("TimeOffset")
 hip_df   = pd.DataFrame(hip_list).rename(columns={"Angle": "hip"}).sort_values("TimeOffset")
 # ankle_df = pd.DataFrame(ankle_list).rename(columns={"Angle": "ankle"}).sort_values("TimeOffset")
-grf_df   = pd.DataFrame(grf_list).rename(columns={"Value": "grf"}).sort_values("TimeOffset")   # TODO: change to real GRF
 imu_left = imu_data.get("0026", [])
 imu_df = pd.DataFrame(imu_left).rename(columns={"Pitch (Y)": "femur_pitch", "Roll (X)": "femur_roll", "Yaw (Z)": "femur_yaw"}).sort_values("TimeOffset")
 
@@ -77,10 +78,15 @@ df["gait_phase"] = df.apply(detect_gait_phase_row, axis=1)
 # plot_encoder(encoder_data, "Left_Ankle_Angle")
 
 # plot_imu(imu_data, "Left_Femur_RPY_(IMU)")
-# plot_grf(grf_data, "Left_Ankle_GRF_Channel_1")
+# plot_grf(grf_data, "Left_Ankle_GRF_Channel_3", "Left_Ankle_GRF_Channel_2", "Left_Ankle_GRF_Channel_4", "Left_Ankle_GRF_Channel_1")
 # plot_grf(grf_data, "Left_Ankle_GRF_Channel_2")
 # plot_grf(grf_data, "Left_Ankle_GRF_Channel_3")
 # plot_grf(grf_data, "Left_Ankle_GRF_Channel_4")
+
+# ===============================
+# Plot GRF sum, knee angle, and hip angle together
+# ===============================
+# plot_grf_angle(df)
 
 # ===============================
 # Debug or Export

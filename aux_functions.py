@@ -12,6 +12,7 @@
 
 import re
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 
 # =============================================================
@@ -61,10 +62,10 @@ stiffness_ids = {"0011", "0013", "0021", "0023"}
 # Angle and Stiffness
 def decode_phi_hip(data_high, data_low):
     # 14-bit raw data, angle range [0°,180°] or [-90°,90°]
-    K = 180 / (2**14 - 1) * 3.6
+    K = 180 / (2**14 - 1) * 4
     if data_high != 0 and data_low != 0: 
         raw_value = (data_high << 8) | data_low
-        phi = 460 - raw_value * K  # angle multiplied by 2 to be a real degreeWSS
+        phi = raw_value * K   - 320 # angle multiplied by 2 to be a real degreeWSS
         if phi < 200:
             return phi
     else:
@@ -72,9 +73,9 @@ def decode_phi_hip(data_high, data_low):
 
 def decode_phi_knee(data_high, data_low):
     # 14-bit raw data, angle range [0°,180°] or [-90°,90°]
-    K = 180 / (2**14 - 1) * 3.6
+    K = 180 / (2**14 - 1) * 4
     raw_value = (data_high << 8) | data_low
-    phi = raw_value * K - 95 # angle multiplied by 2 to be a real degreeWSS
+    phi = raw_value * K  - 300 # angle multiplied by 2 to be a real degreeWSS
     return phi
 
 def decode_imu_left(data):
@@ -99,32 +100,35 @@ def decode_imu_right(data):
         'pitch': -y_val * scale + 180   # [0°, 360°] => [-360°, 0°] by + 180 => [-180°, +180°]
     }
 
-def decode_grf(byte_high, byte_low):
-    raw = (byte_high << 8) | byte_low
-    return raw / 65536 * 1000 / 20
-def decode_GRF(byte_high, byte_low):
+def decode_GRF(byte_high, byte_low, v_ref=5.0, series_resistor=1000):
     # Step 1: Combine bytes to get raw ADC value
     raw = (byte_high << 8) | byte_low  # 10-bit expected: max 1024
     
-    # Step 2: Convert to voltage
+    # Step 2: Convert 10-bit ADC raw value to voltage
     voltage = raw * 5.0 / 1024.0
 
-    # Step 3: Voltage cap check
-    if voltage >= 5.0:
-        return 0.0
-
-    # Step 4: Estimate weight (g) from voltage (placeholder function)
-    # TODO: Replace with calibrated curve or function
-    weight = voltage_to_weight(voltage)
-
-    # Step 5: Convert to Newton
-    force = weight * 9.81 / 1000.0
-    return force
-
-def voltage_to_weight(voltage):
-    # 🔧 Linear placeholder: assume 0V → 0g, 5V → 1000g
-    # You can replace this with a nonlinear curve or lookup table
-    return voltage * 400 # 5V → 1000g => 200g/V
+    # Step 3: Convert voltage to resistance using a voltage divider model
+    if voltage > 5.0:
+        return 0    # Protection condition: invalid input
+    else:
+        if voltage == 0:
+            resistance_ohm = np.inf  # Avoid division by zero; assume open circuit
+        resistance_ohm = (series_resistor * (v_ref - voltage)) / voltage
+    
+        # Step 4: Map resistance to weight (gram) using a linear approximation
+        # This should ideally be replaced with calibration data and interpolation
+        # Example: 100 Ohm = 5000g, 5000 Ohm = 0g
+        # if resistance_ohm > 5000:
+        #     weight_g = 100000
+        # elif resistance_ohm < 50:
+        #     weight_g = 0
+        # else:
+        #     weight_g = np.interp(resistance_ohm, [100, 5000], [5000, 0])
+        weight_g = resistance_ohm * 50
+        # Step 5: Convert weight in grams to force in newtons (N)
+        force_n = (weight_g / 1000.0) * 9.81  # g → kg → N
+        
+        return force_n
 
 # =============================================================
 # 3. Gait Phase Detection
@@ -154,26 +158,26 @@ def voltage_to_weight(voltage):
 #             return 'Unknown (Swing)'
 
 def detect_gait_phase(knee, hip, grf, imu_pitch, imu_roll):
-    if grf > 18:  # Stance phase
-        if knee > 170 and hip > 145 and imu_pitch < -68:
+    if grf > 200:
+        if -10 <= knee <= 20 and 0 <= hip <= 50:
             return 'Initial Contact'
-        elif 160 < knee <= 170 and 135 < hip <= 145 and -70 < imu_pitch < -65:
+        elif knee <= -15 and hip >= 20:
             return 'Loading Response'
-        elif 150 < knee <= 160 and 130 < hip <= 135 and -67 < imu_pitch < -62:
-            return 'Mid Stance'
-        elif knee < 150 and hip < 130 and imu_pitch > -65:
+        elif -30 <= knee <= 0 and 10 <= hip <= 40:
+            return 'Mid-stance'
+        elif -10 <= knee <= 20:
             return 'Terminal Stance'
         else:
-            return 'Pre-Swing'
-    else:  # Swing phase
-        if knee < 140 and hip < 130 and imu_pitch > -67:
+            return 'Pre-swing'
+    else:
+        if knee <= -20 and hip <= 10:
             return 'Initial Swing'
-        elif 140 <= knee <= 160 and 130 <= hip <= 140 and -70 < imu_pitch < -65:
-            return 'Mid Swing'
-        elif knee > 160 and hip > 140 and imu_pitch < -70:
+        elif -20 <= knee <= -10 and 0 <= hip <= 30:
+            return 'Mid-swing'
+        elif -10 <= knee <= 10 and hip > 30:
             return 'Terminal Swing'
         else:
-            return 'Unknown (Swing)'
+            return 'Unknown'
         
 def detect_gait_phase_row(row):
     # 若沒有 grf 欄位，預設為 0
@@ -267,8 +271,8 @@ def parse_can_log(file_path, encoder_data, imu_data, grf_data):
 #     plt.figure()
 #     plt.plot(df["TimeOffset"], df["Angle"], marker='o')
 #     plt.title(f"{name} - ID {can_id}")
-#     plt.xlabel("Time Offset (ms)")
-#     plt.ylabel("Angle (degrees)")
+#     plt.xlabel("Time (ms)")
+#     plt.ylabel("Joint Angle (degrees)")
 #     plt.grid(True)
 #     plt.tight_layout()
 #     plt.show()
@@ -284,7 +288,7 @@ def plot_encoder(data, name1, name2=None):
 
     df1 = pd.DataFrame(data[can_id1])
     plt.figure()
-    plt.plot(df1["TimeOffset"], df1["Angle"], marker='o', label=name1)
+    plt.plot(df1["TimeOffset"], df1["Angle"], marker='o', label="Knee")
 
     if name2:
         if name2 not in encoder_id_label:
@@ -295,11 +299,11 @@ def plot_encoder(data, name1, name2=None):
                 print(f"[Warning] No data for {name2} (CAN ID {can_id2})")
             else:
                 df2 = pd.DataFrame(data[can_id2])
-                plt.plot(df2["TimeOffset"], df2["Angle"], marker='x', label=name2)
+                plt.plot(df2["TimeOffset"], df2["Angle"], marker='x', label="Hip (-180°)")
 
-    plt.title(f"Left Knee Angle vs Left Hip Angle")
-    plt.xlabel("Time Offset (ms)")
-    plt.ylabel("Angle (degrees)")
+    plt.title(f"Knee Angle vs Hip Angle")
+    plt.xlabel("Time (ms)")
+    plt.ylabel("Joint Angle (deg)")
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
@@ -322,26 +326,83 @@ def plot_imu(data, name):
         plt.figure()
         plt.plot(df["TimeOffset"], df[axis], label=axis)
         plt.title(f"{name} - {axis} - CAN ID {can_id}")
-        plt.xlabel("Time Offset (ms)")
-        plt.ylabel("Angle (degrees)")
+        plt.xlabel("Time (ms)")
+        plt.ylabel("Angle (deg)")
         plt.grid(True)
         plt.tight_layout()
     plt.show()
 
-def plot_grf(data, name):
-    if name not in grf_id_label:
-        print(f"[Error] Unknown GRF name: {name}")
-        return
-    can_id, channel = grf_id_label[name]
-    if can_id not in data or channel not in data[can_id] or not data[can_id][channel]:
-        print(f"[Warning] No data for {name} (CAN ID {can_id}, {channel})")
-        return
-    df = pd.DataFrame(data[can_id][channel])
+def plot_grf(data, name1, name2, name3, name4):
+    # Map channel names to labels
+    channel_labels = ["Heel", "Front Outer", "Front Inner", "Toe"]
+    names = [name1, name2, name3, name4]
+    dfs = []
+    # Collect DataFrames for each channel
+    for i, name in enumerate(names):
+        if name not in grf_id_label:
+            print(f"[Error] Unknown GRF name: {name}")
+            return
+        can_id, channel = grf_id_label[name]
+        if can_id not in data or channel not in data[can_id] or not data[can_id][channel]:
+            print(f"[Warning] No data for {name} (CAN ID {can_id}, {channel})")
+            return
+        df = pd.DataFrame(data[can_id][channel])
+        dfs.append(df)
+    # Align all channels by TimeOffset (inner join)
+    merged = dfs[0][["TimeOffset", "Value"]].rename(columns={"Value": channel_labels[0]})
+    for i in range(1, 4):
+        merged = pd.merge_asof(
+            merged.sort_values("TimeOffset"),
+            dfs[i][["TimeOffset", "Value"]].rename(columns={"Value": channel_labels[i]}).sort_values("TimeOffset"),
+            on="TimeOffset",
+            direction="nearest",
+            tolerance=20  # ms, adjust as needed
+        )
+    # Drop rows with any missing values
+    merged = merged.dropna()
+    # Calculate sum
+    merged["Sum"] = merged[channel_labels].sum(axis=1)
+    # Plot
     plt.figure()
-    plt.plot(df["TimeOffset"], df["Value"], marker='.')
-    plt.title(f"{name} - ID {can_id} / {channel}")
-    plt.xlabel("Time Offset (ms)")
-    plt.ylabel("Force Value (N)")
+    plt.plot(merged["TimeOffset"], merged["Sum"], label="Sum", linestyle="-", linewidth=2)
+    for i, label in enumerate(channel_labels):
+        plt.plot(merged["TimeOffset"], merged[label], label=label, linestyle="--")
+    plt.title(f"Insole FSRs measurement")
+    plt.xlabel("Time (ms)")
+    plt.ylabel("GRF (N)")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+def get_grf_sum_df(grf_data):
+    """
+    將 grf_data 四個 channel 對齊並加總，回傳 DataFrame (TimeOffset, grf)
+    """
+    ch1 = pd.DataFrame(grf_data["0025"]["Channel 1"])[["TimeOffset", "Value"]].rename(columns={"Value": "ch1"})
+    ch2 = pd.DataFrame(grf_data["0025"]["Channel 2"])[["TimeOffset", "Value"]].rename(columns={"Value": "ch2"})
+    ch3 = pd.DataFrame(grf_data["0025"]["Channel 3"])[["TimeOffset", "Value"]].rename(columns={"Value": "ch3"})
+    ch4 = pd.DataFrame(grf_data["0025"]["Channel 4"])[["TimeOffset", "Value"]].rename(columns={"Value": "ch4"})
+    grf_df = pd.merge_asof(ch1.sort_values("TimeOffset"), ch2.sort_values("TimeOffset"), on="TimeOffset", direction="nearest", tolerance=20)
+    grf_df = pd.merge_asof(grf_df, ch3.sort_values("TimeOffset"), on="TimeOffset", direction="nearest", tolerance=20)
+    grf_df = pd.merge_asof(grf_df, ch4.sort_values("TimeOffset"), on="TimeOffset", direction="nearest", tolerance=20)
+    grf_df = grf_df.dropna()
+    grf_df["grf"] = grf_df[["ch1", "ch2", "ch3", "ch4"]].sum(axis=1)
+    return grf_df[["TimeOffset", "grf"]]
+
+def plot_grf_angle(df):
+    """
+    繪製 GRF sum、knee angle、hip angle 三條線於同一張圖
+    df 需包含 'TimeOffset', 'grf', 'knee', 'hip' 欄位
+    """
+    plt.figure(figsize=(12, 6))
+    plt.plot(df["TimeOffset"], df["grf"], label="GRF Sum", color="tab:blue", linewidth=1)
+    plt.plot(df["TimeOffset"], df["knee"], label="Knee Angle", color="tab:orange", linestyle="--")
+    plt.plot(df["TimeOffset"], df["hip"], label="Hip Angle", color="tab:green", linestyle=":")
+    plt.xlabel("Time (ms)")
+    plt.ylabel("Value")
+    plt.title("GRF Sum, Knee Angle, and Hip Angle")
+    plt.legend()
     plt.grid(True)
     plt.tight_layout()
     plt.show()
