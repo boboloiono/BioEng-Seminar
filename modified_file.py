@@ -1,6 +1,6 @@
-input_path = "recorded_data/left movement seat stand up v4.trc"
-output_path = "recorded_data/left movement seat stand up v4_filtered.trc"
-threshold = 10000  # ms
+input_path = "recorded_data/left movement v9.trc"
+output_path = "recorded_data/left movement v9_filtered.trc"
+threshold = 16000  # ms
 
 import re
 
@@ -12,8 +12,7 @@ with open(input_path, "r", encoding="utf-8") as infile, \
         match = pattern.match(line)
         if match:
             time_offset = float(match.group(1))
-            if time_offset >= threshold:
+            if time_offset >= 10669 and time_offset <= 25500:
                 outfile.write(line)
         else:
-            # 若有標頭或其他格式，視情況保留
             outfile.write(line)
